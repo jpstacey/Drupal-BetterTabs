@@ -1,0 +1,163 @@
+<?php
+
+/**
+ * @file BetterTabs
+ */
+
+/**
+ * Implementation of hook_block
+ */
+function bettertabs_block($op = 'list', $delta = 0, $edit = array()) {
+  switch($op) {
+    case 'list':
+      $blocks['links'] = array(
+        'info' => t('BetterTabs links'),
+      );
+      $blocks['diagnose'] = array(
+        'info' => t('BetterTabs admin'),
+      );
+      return $blocks;
+    break;
+    case 'view':
+      switch($delta) {
+        case 'links':
+          $block['subject'] = t("Links");
+          $block['content'] = bettertabs_content();
+          return $block;
+        break;
+      }
+    break;
+  }
+}
+
+/**
+ * Implementation of hook_preprocess_node
+ */
+function bettertabs_preprocess_node(&$vars) {
+  static $data;
+
+  if ($vars['page']) {
+    $data['taxonomy_links'] = $vars['taxonomy'];
+    $data['taxonomy'] = $vars['node']->taxonomy;
+    $data['links'] = $vars['node']->links;
+    // Need to check block will be instantiated
+    unset($vars['links']);
+    unset($vars['taxonomy']);
+  }
+
+  return $data;
+}
+
+/**
+ * Implementation of hook_preprocess_page
+ */
+function bettertabs_preprocess_page(&$vars) {
+  // Need to check block will be instantiated
+  unset($vars['tabs']);
+}
+
+
+/**
+ * Get content for block
+ */
+function bettertabs_content() {
+  $sections = array(
+    'actions' => array(
+      'title' => t('Actions'),
+    ),
+
+    'categories' => array(
+      'title' => t('Categories'),
+    ),
+  );
+
+  $misc_links = array();
+
+  // Need to have already processed a node
+  $data = bettertabs_preprocess_node();
+
+  // Tabs - hack with SimpleXML
+  $tabs = simplexml_load_string("<ul>".menu_local_tasks()."</ul>");
+  foreach($tabs->li as $li) {
+    $data['primary_tabs'][] = array(
+      "href" => substr($li->a["href"],strlen(base_path())),
+      "title" => "".$li->a,
+    );
+  }
+  $tabs = simplexml_load_string("<ul>".menu_local_tasks(1)."</ul>");
+  foreach($tabs->li as $li) {
+    $data['secondary_tabs'][] = array(
+      "href" => "".$li->a["href"],
+      "title" => "".$li->a["0"],
+    );
+  }
+
+  // Taxonomy terms
+  foreach($data['taxonomy_links'] as $desc => $link) {
+    // We could compare with $data['taxonomy'] and split by $vid...!
+    $sections['categories']['links'][] = $link;
+  }
+
+  // Node links 
+  // These have a description, insofar as their keys are unique
+  foreach($data['links'] as $desc => $link) {
+    foreach($sections as &$section) {
+      if (in_array($desc, $section['link_descs'])) {
+        $section['items'][] = $link;
+        continue 2;
+      }
+    }
+    $misc_links[] = $link;
+  }
+
+  // Tabs
+  foreach($data['primary_tabs'] as $desc => $link) {
+    // Should split based on regex/glob matching
+    $sections['actions']['links'][] = $link;
+  }
+  // What to do with secondary tabs?
+
+  // Add misc section at the very end, with everything else in it
+  $sections['misc'] = array('title' => 'Misc', 'links' => $misc_links);
+
+  return theme('bettertabs_sections', t('Useful links'), $sections);
+}
+
+/**
+ * Implementation of hook_theme
+ */
+function bettertabs_theme() {
+  $path = drupal_get_path('module', 'bettertabs');
+
+  return array(
+    'bettertabs_sections' => array(
+      'arguments' => array('title' => NULL, 'sections' => array()),
+      'template' => 'bettertabs-sections',
+      'path' => "$path/templates",
+      'preprocess functions' => array('bettertabs_preprocess_bettertabs_sections'),
+    ),
+    'bettertabs_section' => array(
+      'arguments' => array('class' => NULL, 'title' => NULL, 'links' => array()),
+      'template' => 'bettertabs-section',
+      'path' => "$path/templates",
+    ),
+  );
+}
+
+/**
+ * Implementation of hook_preprocess_bettertabs_sections
+ */
+function bettertabs_preprocess_bettertabs_sections(&$vars) {
+  foreach($vars['sections'] as $class => $section) {
+    $section["links"] && ($vars['content'][] = theme('bettertabs_section', 
+      check_plain($class), check_plain($section["title"]), $section["links"]));
+  }
+}
+
+/**
+ * Implementation of hook_preprocess_bettertabs_section
+ */
+function bettertabs_preprocess_bettertabs_section(&$vars) {
+  $template_files[] = 'bettertabs-section-'.$vars['class'];
+}
+
