@@ -214,12 +214,20 @@ function bettertabs_conf_tabs() {
 }
 
 function bettertabs_visibility_tabs($conf) {
+  $is_on_path = FALSE;
   foreach($conf['sections'] as $sec => $sec_conf) {
     foreach ($sec_conf['regex'] as $regex) {
       $matches = preg_match("/^$regex\$/", $_GET['q']);
       if ($matches) {
-        return (og_get_group_context()>0);
+        $is_on_path = TRUE;
+        break 2;
       }
     }
   }
+
+  if ($is_on_path) {
+    $g = og_get_group_context();
+    if ($g->type == "network") { return TRUE; }
+  }
+
 }
