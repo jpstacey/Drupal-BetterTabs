@@ -56,6 +56,9 @@ function bettertabs_preprocess_node(&$vars) {
  * Implementation of hook_preprocess_page
  */
 function bettertabs_preprocess_page(&$vars) {
+  global $bettertabs_is_rendered;
+  if (!$bettertabs_is_rendered) { return; }
+
   $tabs_conf = bettertabs_conf_tabs();
   $vis = FALSE;
   foreach($tabs_conf['visibility']['callbacks'] as $fn) {
@@ -151,6 +154,8 @@ function bettertabs_content() {
   // Add misc section at the very end, with everything else in it
   $sections['misc'] = array('title' => 'Misc', 'links' => $misc_links);
 
+  global $bettertabs_is_rendered;
+  $bettertabs_is_rendered = TRUE;
   return theme('bettertabs_sections', t('Useful links'), $sections);
 }
 
