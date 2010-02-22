@@ -60,11 +60,8 @@ function bettertabs_preprocess_page(&$vars) {
   if (!$bettertabs_is_rendered) { return; }
 
   $tabs_conf = bettertabs_conf_tabs();
-  $vis = FALSE;
-  foreach($tabs_conf['visibility']['callbacks'] as $fn) {
-    $vis |= (function_exists($fn) && $fn($tabs_conf));
-  }
-  if (!$vis) { return; }
+  if (!_bettertabs_determine_visibility($tabs_conf)) { return; }
+
   // Need to check block will be instantiated
   if (variable_get('bettertabs_tabs', TRUE)) {
     unset($vars['tabs']);
@@ -126,30 +123,37 @@ function bettertabs_content() {
 
   // Tabs
   $tabs_conf = bettertabs_conf_tabs();
-  $vis = FALSE;
-  foreach($tabs_conf['visibility']['callbacks'] as $fn) {
-    $vis |= (function_exists($fn) && $fn($tabs_conf));
-  }
-  if(!$vis) { return; }
+  if (!_bettertabs_determine_visibility($tabs_conf)) { return; }
 
+  // Count links we've put into the block
+  $num_links = 0;
+  // Merge sections from $tabs_conf with the $links and taxonomy above
   $sections = array_merge($sections, $tabs_conf['sections']);
   foreach($data['primary_tabs'] as $desc => $link) {
     $matched = FALSE;
     foreach($sections as $sec => $sec_conf) {
+      // Each section config consists of many regexes - see if there's a match
       foreach ($sec_conf['regex'] as $regex) {
         $matches = preg_match("/^$regex\$/", $link['href']) + preg_match("/^$regex\$/", $link["href_system"]);
         if ($matches) {
           $matched = TRUE;
           // Should split based on regex/glob matching
           $sections[$sec]['links'][] = $link;
+          $num_links++;
         }
       }
     }
     if (!$matched && variable_get('bettertabs_show_unmatched', FALSE)) {
       $misc_links[] = $link;
+      $num_links++;
     }
   }
   // What to do with secondary tabs?
+
+  // If we've only got one link, and we shouldn't display, just return
+  if ($num_links < 2 && !$tabs_conf['visibility']['one_tab']) {
+    return;
+  }
 
   // Add misc section at the very end, with everything else in it
   $sections['misc'] = array('title' => 'Misc', 'links' => $misc_links);
@@ -203,7 +207,10 @@ function bettertabs_preprocess_bettertabs_section(&$vars) {
 function bettertabs_conf_tabs() {
   $data = array(
     'visibility' => array(
+      // Callback(s) to determine visibility
       'callbacks' => array('bettertabs_visibility_tabs'),
+      // Show when there's one tab?
+      'one_tab' => FALSE,
     ),
 
     'sections' => array(
@@ -218,7 +225,23 @@ function bettertabs_conf_tabs() {
   return $data;
 }
 
-function bettertabs_visibility_tabs($conf) {
+/**
+ * Determine visibility from callbacks
+ */
+function _bettertabs_determine_visibility($tabs_conf) {
+  // Add core vis check
+  if (!$tabs_conf['visibility']['callbacks']) {
+    $tabs_conf['visibility']['callbacks'] = array('_bettertabs_visibility_core');
+  }
+
+  $vis = FALSE;
+  foreach($tabs_conf['visibility']['callbacks'] as $fn) {
+    $vis |= (function_exists($fn) && $fn($tabs_conf));
+  }
+  return $vis;
+}
+
+function _bettertabs_visibility_core($conf) {
   $is_on_path = FALSE;
   foreach($conf['sections'] as $sec => $sec_conf) {
     foreach ($sec_conf['regex'] as $regex) {
@@ -229,6 +252,11 @@ function bettertabs_visibility_tabs($conf) {
       }
     }
   }
+  return $is_on_path;
+}
+
+function bettertabs_visibility_tabs($conf) {
+  $is_on_path = _bettertabs_visibility_core($conf);
 
   if ($is_on_path) {
     $g = og_get_group_context();
