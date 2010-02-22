@@ -10,19 +10,19 @@
 function bettertabs_block($op = 'list', $delta = 0, $edit = array()) {
   switch($op) {
     case 'list':
-      $blocks['links'] = array(
-        'info' => t('BetterTabs links'),
-      );
-      $blocks['diagnose'] = array(
-        'info' => t('BetterTabs admin'),
-      );
+      $conf = bettertabs_conf_tabs();
+      foreach($conf as $k => $v) {
+        $blocks[$k] = array(
+          'info' => t("BetterTabs @k", array("@k" => $k)),
+        );
+      }
       return $blocks;
     break;
     case 'view':
       switch($delta) {
         default:
           $block['subject'] = t("Links");
-          $block['content'] = bettertabs_content();
+          $block['content'] = bettertabs_content($delta);
           return $block;
         break;
       }
@@ -59,9 +59,6 @@ function bettertabs_preprocess_page(&$vars) {
   global $bettertabs_is_rendered;
   if (!$bettertabs_is_rendered) { return; }
 
-  $tabs_conf = bettertabs_conf_tabs();
-  if (!_bettertabs_determine_visibility($tabs_conf)) { return; }
-
   // Need to check block will be instantiated
   if (variable_get('bettertabs_tabs', TRUE)) {
     unset($vars['tabs']);
@@ -72,7 +69,7 @@ function bettertabs_preprocess_page(&$vars) {
 /**
  * Get content for block
  */
-function bettertabs_content() {
+function bettertabs_content($conf_key) {
   $sections = array(
 
     'categories' => array(
@@ -122,13 +119,22 @@ function bettertabs_content() {
   }
 
   // Tabs
-  $tabs_conf = bettertabs_conf_tabs();
+  $tabs_conf = bettertabs_conf_tabs($conf_key);
   if (!_bettertabs_determine_visibility($tabs_conf)) { return; }
 
   // Count links we've put into the block
   $num_links = 0;
+
   // Merge sections from $tabs_conf with the $links and taxonomy above
   $sections = array_merge($sections, $tabs_conf['sections']);
+  // Sometimes we don't get primary tabs!
+  if (!$data['primary_tabs'] && $tabs_conf['alt_tabs']) {
+    foreach($tabs_conf['alt_tabs'] as $desc => $link) {
+      $data['primary_tabs'][$desc] = $link;
+      // Have to abstract this bit for non-groups
+      $data['primary_tabs'][$desc]['href'] = token_replace($link['href'], 'node', og_get_group_context());
+    }
+  }
   foreach($data['primary_tabs'] as $desc => $link) {
     $matched = FALSE;
     foreach($sections as $sec => $sec_conf) {
@@ -140,6 +146,7 @@ function bettertabs_content() {
           // Should split based on regex/glob matching
           $sections[$sec]['links'][] = $link;
           $num_links++;
+          break;
         }
       }
     }
@@ -148,7 +155,6 @@ function bettertabs_content() {
       $num_links++;
     }
   }
-  // What to do with secondary tabs?
 
   // If we've only got one link, and we shouldn't display, just return
   if ($num_links < 2 && !$tabs_conf['visibility']['one_tab']) {
@@ -202,10 +208,10 @@ function bettertabs_preprocess_bettertabs_section(&$vars) {
 }
 
 /**
- *
+ * Configuration - hardwired until we need it to be exposed in admin
  */
-function bettertabs_conf_tabs() {
-  $data = array(
+function bettertabs_conf_tabs($key = NULL) {
+  $data['network'] = array(
     'visibility' => array(
       // Callback(s) to determine visibility
       'callbacks' => array('bettertabs_visibility_tabs'),
@@ -219,9 +225,45 @@ function bettertabs_conf_tabs() {
         'regex' => array('node\/\d+', 'node\/\d+\/og_admin', 'node\/\d+\/edit', 'node\/\d+\/dashboard'),
       ),
     ),
-
   );
 
+  $data['microsite'] = array(
+    'visibility' => array(
+      // Callback(s) to determine visibility
+      'callbacks' => array(),
+      // Show when there's one tab?
+      'one_tab' => FALSE,
+    ),
+
+    'sections' => array(
+      'actions' => array(
+        'title' => t('Actions'),
+        'regex' => array('node\/\d+', 'node\/\d+\/edit', 'node\/\d+\/dashboard', 'node\/\d+\/revisions', 'microsite_dashboard'),
+      ),
+    ),
+    // Alternative tabs, for when tabs array is empty
+    'alt_tabs' => array(
+      array(
+        'href' => 'node/[nid]/dashboard',
+        'title' => 'Dashboard',
+        'href_system' => 'microsite_dashboard',
+      ),
+      array(
+        'href' => 'node/[nid]/edit',
+        'title' => 'Edit',
+        'href_system' => FALSE,
+      ),
+      array(
+        'href' => 'node/[nid]/revisions',
+        'title' => 'Revisions',
+        'href_system' => FALSE,
+      ),
+    ),
+  );
+
+  if ($key) {
+    return $data[$key];
+  }
   return $data;
 }
 
@@ -241,11 +283,13 @@ function _bettertabs_determine_visibility($tabs_conf) {
   return $vis;
 }
 
-function _bettertabs_visibility_core($conf) {
+function _bettertabs_visibility_core($conf, $url = NULL) {
+  ($url === NULL) && ($url = $_GET['q']);
+
   $is_on_path = FALSE;
   foreach($conf['sections'] as $sec => $sec_conf) {
     foreach ($sec_conf['regex'] as $regex) {
-      $matches = preg_match("/^$regex\$/", $_GET['q']);
+      $matches = preg_match("/^$regex\$/", $url);
       if ($matches) {
         $is_on_path = TRUE;
         break 2;
